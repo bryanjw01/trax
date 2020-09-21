@@ -23,6 +23,7 @@ from tensorflow import test
 from trax import fastmath
 from trax import shapes
 from trax.fastmath import numpy as jnp
+import trax.layers as tl
 from trax.layers.research import efficient_attention
 
 
@@ -292,6 +293,64 @@ class EfficientAttentionTest(test.TestCase):
         self.assertGreater(
             np.mean(np.abs(y[i, rngs[i]:] - y2[i, rngs[i]:])), 1e-5)
 
+
+class ReversibleReshapePermuteTest(test.TestCase):
+
+  def test_reversible_permute(self):
+    layer = efficient_attention.ReversibleReshapePermute()
+    x = np.array([[1, 2, 3, 4, 5, 6, 7, 8],
+                  [0, 1, 2, 3, 4, 5, 6, 7]])
+    layer.init(shapes.signature(x))
+    ys = layer(x)
+    self.assertEqual(tl.to_list(ys), [
+        [1, 5, 2, 6, 3, 7, 4, 8],
+        [0, 4, 1, 5, 2, 6, 3, 8]])
+    rev_x = layer.reverse(ys, weights=layer.weights)
+    self.assertEqual(tl.to_list(x), tl.to_list(rev_x))
+
+
+class ReversibleRandomPermuteTest(test.TestCase):
+
+  def test_reversible_permute(self):
+    layer = efficient_attention.ReversibleRandomPermute()
+    x = np.array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+                  [0, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 11, 12, 13],
+                  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+                  ])
+    layer.init(shapes.signature(x))
+    ys = layer(x)
+    # this assert will fail once per ~87B runs, but it's okay
+    self.assertNotEqual(tl.to_list(ys), tl.to_list(x))
+
+    self.assertEqual(tl.to_list(ys[0]), tl.to_list(ys[2]))
+    self.assertNotEqual(tl.to_list(ys[0]), tl.to_list(ys[1]))
+    rev_x = layer.reverse(ys, weights=layer.weights)
+    self.assertEqual(tl.to_list(x), tl.to_list(rev_x))
+
+
+class GroupedConvolutionTest(test.TestCase):
+
+  def test_call(self):
+    layer = tl.GroupedConvolution(2, 8)
+    x = np.array([[2, 5, 3, 4],
+                  [0, 1, 2, 3]])
+    _, _ = layer.init(shapes.signature(x))
+
+    y = layer(x)
+    self.assertEqual(y.shape, (2, 16))
+
+
+class ModularCausalAttentionTest(test.TestCase):
+
+  def test_call(self):
+    layer = tl.ModularCausalAttention(d_feature=4, n_heads=2, n_modules=2)
+    x = np.array([[[2, 5, 3, 4],
+                   [0, 1, 2, 3],
+                   [0, 1, 2, 3],]])
+    _, _ = layer.init(shapes.signature(x))
+
+    y = layer(x)
+    self.assertEqual(y.shape, (1, 3, 4))
 
 if __name__ == '__main__':
   test.main()
